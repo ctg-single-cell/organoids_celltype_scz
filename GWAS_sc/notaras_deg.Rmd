@@ -1,0 +1,234 @@
+---
+title: "Notaras_DEG"
+author: "Fallon Ratner"
+date: '2024-01-25'
+output: html_document
+---
+
+``````{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+```
+## Setting Up
+
+- Load libraries
+- Load processed single cell object from Notaras et al., 2022
+- Downloaded from here: https://github.com/abcwcm/Notaras_MolPsy/tree/main
+
+```{r, warning=FALSE}
+library(SingleCellExperiment)
+library(edgeR)
+library(data.table)
+library(dplyr)
+
+#select relevant working directory
+setwd("C:/Users/fallo/OneDrive/Documents/URF_2023/SCZ_Datasets/Notaras")
+
+# Load the SCE object from the RDA file
+load("sce_notarasBrainOrganoids.rda")
+```
+
+## Identify DEGs 
+- Sum counts per sample
+- Use edgeR to compute DEGs
+
+```{r, warning=FALSE}
+#Sum counts per function as provided by Notaras et al., 2022
+sum_counts_per_sample <- function(sce.object, split_by = "Sample"){
+  
+  if(!"counts" %in% assayNames(sce.object)){
+    stop("We need the assay 'counts' in the SCE object")}
+  n_cells_all <- dim(sce.object)[2]
+  
+  gns_counts <- as.data.table(as.matrix(counts(sce.object)), keep.rownames = TRUE)
+  setnames(gns_counts, "rn", "gene")
+  message("Gathering counts in a skinny data.table")
+  gns_counts <- melt(gns_counts, id.vars = "gene", variable.name = "cell")
+  gns_counts <- gns_counts[value > 0]
+  
+  ci <- colData(sce.object)[, split_by, drop = FALSE] %>% as.data.frame %>%
+    as.data.table(., keep.rownames = TRUE)
+  setnames(ci, "rn", "cell")
+  gns_counts <- gns_counts[ci, on = "cell"]
+  
+  message(paste("Summing counts per", split_by))
+  countsums <- gns_counts[, sum(value), by = c("gene", split_by)]
+  setnames(countsums, split_by, "sample")
+  
+  ## returning matrix
+  cc.df <- dcast(countsums, gene ~ sample, value.var = "V1") %>% as.data.frame
+  rownames(cc.df) <- cc.df$gene
+  cc.df$gene <- NULL
+  cc.df[is.na(cc.df)] <- 0
+  
+  return(cc.df)
+}
+
+# Use the sum_counts_per_sample function to sum counts per sample
+counts_per_sample <- sum_counts_per_sample(notaras_brainOrganoids.sce, split_by = "Sample")
+
+```
+
+
+
+
+```{r, warning=FALSE}
+#Calculate DEG for individual SCZ cases vs all ctrl
+
+run_edger_ctrl_vs_scz <- function(counts_df, sample_info, min_cpm = 1, min_samples = 4) {
+  library(edgeR)
+  
+  # Identify SCZ samples
+  scz_samples <- grep("^S", sample_info, value = TRUE)
+  
+  # Create contrasts for each SCZ sample versus all CTRL samples
+  contrasts <- lapply(scz_samples, function(scz_sample) {
+    group <- ifelse(sample_info == scz_sample, "SCZ", "CTRL")
+    group <- factor(group)
+    design <- model.matrix(~group)
+    return(design)
+  })
+  
+  # Combine the contrasts into one design matrix
+  design <- Reduce(cbind, contrasts)
+  
+  DGEl <- DGEList(counts = counts_df)
+  
+  keep <- rowSums(cpm(DGEl) >= min_cpm) >= min_samples
+  DGEl <- DGEl[keep,]
+  DGEl$samples$lib.size <- colSums(DGEl$counts)
+  DGEl <- calcNormFactors(DGEl)
+  
+  # Estimate dispersion using the new design
+  DGEl <- estimateDisp(DGEl, design)
+  
+  # Fit the generalized linear model
+  fit <- glmQLFit(DGEl, design)
+  
+  # Test for differential expression
+  fit.res <- glmQLFTest(fit)
+  
+  # Extract results
+  res <- as.data.frame(topTags(fit.res, n = Inf, sort.by = "none"))
+  
+  return(res)
+}
+
+```
+
+```{r, warning=FALSE}
+
+#make three dfs with combinations of samples for deg analysis
+
+# Create data frames for each comparison
+ctrl_samples <- c("C1", "C2", "C3")
+ctrl_samples_combinations <- list(
+  S1 = c(ctrl_samples, "S1"),
+  S2 = c(ctrl_samples, "S2"),
+  S3 = c(ctrl_samples, "S3")
+)
+
+# Extract counts for each combination
+counts_S1_vs_ctrl <- counts_per_sample[, ctrl_samples_combinations$S1]
+counts_S2_vs_ctrl <- counts_per_sample[, ctrl_samples_combinations$S2]
+counts_S3_vs_ctrl <- counts_per_sample[, ctrl_samples_combinations$S3]
+
+```
+
+
+``` {r, warning=FALSE}
+
+# Create sample_info vector
+sample_info1 <- c(rep("C", 3), "S1")
+# Run edgeR for S1 vs CTRL
+edgeR_results_S1 <- run_edger_ctrl_vs_scz(counts_df = counts_S1_vs_ctrl, sample_info = sample_info1)
+
+# Create sample_info vector
+sample_info2 <- c(rep("C", 3), "S2")
+# Run edgeR for S2 vs CTRL
+edgeR_results_S2 <- run_edger_ctrl_vs_scz(counts_df = counts_S2_vs_ctrl, sample_info = sample_info2)
+
+# Create sample_info vector
+sample_info3 <- c(rep("C", 3), "S3")
+# Run edgeR for S3 vs CTRL
+edgeR_results_S3 <- run_edger_ctrl_vs_scz(counts_df = counts_S3_vs_ctrl, sample_info = sample_info3)
+
+# Display the table with differentially expressed genes
+head(edgeR_results_S1)
+
+```
+
+```{r, warning=FALSE}
+# Create a list of edgeR_results data frames
+edgeR_results_list <- list(edgeR_results_S1, edgeR_results_S2, edgeR_results_S3)
+
+# Create a function to add gene names, reorder columns, and save the edgeR results as CSV
+mod_edgeR_and_save <- function(edgeR_results, file_name) {
+  
+  # Add genes to DEG dataframe as new column
+  edgeR_results$Gene_name <- rownames(edgeR_results)
+  
+  # Reorder columns 
+  edgeR_results <- edgeR_results[, c("Gene_name", colnames(edgeR_results)[!colnames(edgeR_results) %in% "Gene_name"])]
+  
+  # Save the results as CSV
+  write.csv(edgeR_results, file = file_name, row.names = FALSE)
+}
+
+# Loop through the list of edgeR_results data frames and save each as CSV
+for (i in seq_along(edgeR_results_list)) {
+  file_name <- paste0("notaras_deg_S", i, ".csv")
+  mod_edgeR_and_save(edgeR_results_list[[i]], file_name)
+}
+
+
+```
+
+
+## DEG for all SCZ vs all CTRL 
+
+
+```{r, warning=FALSE}
+#EdgeR function as provided by Notaras et al., 2022
+
+run_edger_ctrl_vs_scz <- function(counts_df, sample_info, min_cpm = 1 , 
+  min_samples = 4){
+  library(edgeR)
+  DGEl <- DGEList(counts = counts_df, group = sample_info)
+
+  keep <- rowSums( cpm(DGEl) >= min_cpm) >= min_samples
+  DGEl <- DGEl[keep,]
+  DGEl$samples$lib.size <- colSums(DGEl$counts)
+  DGEl <- calcNormFactors(DGEl)
+  DGEl <- estimateDisp(DGEl, model.matrix(~sample_info) )
+  fit <- glmQLFit(DGEl,model.matrix(~sample_info))
+  fit.res <- glmQLFTest(fit)
+  res <- as.data.frame(topTags(fit.res, n = Inf, sort.by = "none"))
+  return(res)
+}
+
+#  'condition' specifies control and disease samples
+sample_info <- as.factor(colData(notaras_brainOrganoids.sce)$Sample)
+# Create a new sample_info2 based on colnames
+sample_info_new <- factor(substr(colnames(counts_per_sample), 1, 1), levels = c("C", "S"))
+
+
+# Run edgeR
+edgeR_results <- run_edger_ctrl_vs_scz(counts_df = counts_per_sample, sample_info = sample_info_new)
+
+# Display the table with differentially expressed genes
+head(edgeR_results)
+
+```
+
+```{r, warning=FALSE}
+# Add genes to deg dataframe as new column
+# Assuming edgeR_results contains the result of your analysis and has a column "gene"
+edgeR_results$Gene_name <- rownames(edgeR_results)
+
+# Reorder columns 
+edgeR_results <- edgeR_results[, c("Gene_name", colnames(edgeR_results)[!colnames(edgeR_results) %in% "Gene_name"])]
+
+# Print the updated data frame
+head(edgeR_results)
+
+```
