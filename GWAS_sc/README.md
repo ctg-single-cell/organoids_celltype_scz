@@ -1,6 +1,6 @@
 # Project Title: URF Fellowship Project - Overlap in Genetic Findings from GWAS and Organoid scRNAseq
 ## This repo contains scripts related to the analysis of mapped genes from SCZ GWAS or ASD GWAS and differentially expressed genes from scRNAseq in SCZ organoids.
-### Author: Fallon Ratner (f.t.ratner@student.vu.nl)
+### Author: Fallon Ratner (fallon.ratner@gmail.com)
 ### Date: 27-02-2024
 
 # 0. Installation of software and packages
@@ -10,7 +10,16 @@
 - [Python]: version 3.10.9
 - Python packages (scanpy; pandas; numpy; matplotlib; gseapy; os; io; seaborn; matplotlib; matplotlib_venn; biomart)
 
-# 1. Access datasets
+### GWAS Summary Statistics were accessed from: https://www.ebi.ac.uk/gwas/downloads/summary-statistics
+- Schizophrenia: The Schizophrenia Working Group of the Psychiatric Genomics Consortium, Stephan Ripke, James TR Walters, Michael C O'Donovan doi: https://doi.org/10.1101/2020.09.12.20192922
+- Autism: Grove J, et al. Identification of common genetic risk variants for autism spectrum disorder. Nat Genet. 2019 Mar;51(3):431-444. doi: 10.1038/s41588-019-0344-8. Epub 2019 Feb 25. PMID: 30804558; PMCID: PMC6454898.
+- FUMA (https://fuma.ctglab.nl/) was used to identify SNPs and map it to genes. Additionally, it was used to associate risk loci with fetal tissue and fetal cell types.
+
+### Organoid Datasets were the following:
+- Notaras et al., 2022 (https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE184878)
+- Sawada et al., 2020 (https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE120190)
+
+# 1. Location of used datasets
 - Datasets used are found in the folder datasets
 
 # 2. Convert Ensembl Ids to Gene Symbols
